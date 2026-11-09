@@ -9,10 +9,19 @@ Panel local (Node.js sin frameworks) para encender, probar y entrar a mis sistem
 - `npm run build:css` — recompila `public/css/tailwind.css`. **Obligatorio después de agregar o cambiar clases de Tailwind** en `public/index.html` o `public/js/*.js`; no hay CDN.
 
 ## Estructura
-- `server.js` — API HTTP en 127.0.0.1. Valida Host, Origin, Sec-Fetch-Site y exige `application/json` en los POST (protección contra CSRF y DNS rebinding). No quitar esas validaciones.
-- `scripts/utils-proyectos.js` — catálogo, validación (`validarCatalogo`, `validarComandoInicio`), respaldos automáticos en `data/respaldos/`.
-- `scripts/inicio-sesion.js` — abre Chrome/Edge, llena el login del rol y deja la sesión iniciada (un contexto aislado por rol).
-- `public/` — interfaz: `index.html`, `js/utils.js`, `js/render.js` (estampas del inicio y panel de cada sistema), `js/modals.js`, `js/app.js` (navegación por `#/sistema/<id>`).
+- `server.js` — Punto de entrada ligero del servidor HTTP en 127.0.0.1.
+- `src/` — Arquitectura modular del backend:
+  - `src/config/` — Rutas del sistema (`rutas-sistema.js`) y constantes (`constantes.js`).
+  - `src/utils/` — Utilidades transversales (`archivos.js`, `urls.js`, `cli.js`).
+  - `src/services/catalogo/` — Repositorio de proyectos (`repositorio.js`), validación (`validacion.js`) y respaldos automáticos en `data/respaldos/` (`respaldos.js`).
+  - `src/services/procesos/` — Puertos TCP y estados (`puertos.js`), detección de `.bat` (`scripts-bat.js`) y arranque/detención de servidores (`lanzador.js`).
+  - `src/services/deteccion/` — Autodetección de carpeta (`detector-proyecto.js`) y generador de ficha técnica (`ficha-tecnica.js`).
+  - `src/services/auditoria/` — Motor OWASP modularizado en SAST (`sast.js`), DAST (`dast.js`), evaluadores (`evaluadores.js`) y orquestador (`index.js`).
+  - `src/services/carga/` — Simulador de concurrencia y estrés (`prueba-carga.js`).
+  - `src/services/sesion/` — Inicio de sesión automático en Chrome/Edge aislado por rol (`inicio-sesion.js`).
+  - `src/http/` — Servidor HTTP (`servidor.js`), rutas API (`rutas-api.js`), archivos estáticos (`estaticos.js`), respuestas (`respuestas.js`) y validaciones de Host, Origin, Sec-Fetch-Site y `application/json` (`seguridad-http.js`). No quitar esas validaciones.
+- `scripts/` — Puntos de entrada CLI y adaptadores de compatibilidad (`utils-proyectos.js`, `inicio-sesion.js`, `detector-ficha-tecnica.js`, `detector-proyecto.js`, `prueba-carga.js`, `auditoria-seguridad.js`).
+- `public/` — Interfaz modularizada: `index.html`, `js/utils.js`, `js/render.js`, `js/modals/` (`modal-proyecto.js`, `modal-auditoria.js`, `modal-carga.js`, `modal-respaldos.js`), `js/modals.js`, `js/actions/` (`proyectos-acciones.js`, `sesion-acciones.js`) y `js/app.js` (navegación por `#/sistema/<id>`).
 - `tools/tailwind.config.js` — paleta: `indigo` = rosa mexicano, `slate` = tinta. Colores de cada sistema en `PALETA_ESTAMPAS` (`public/js/utils.js`).
 
 ## Reglas

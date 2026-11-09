@@ -144,24 +144,60 @@ node scripts/prueba-carga.js --proyecto=bistrosoft-pos --max=200
 panel de pruebas/
 ├── iniciar-panel.bat               # Lanzador directo en Windows (abre el navegador en el puerto real)
 ├── .gitignore                      # Evita subir credenciales y respaldos a GitHub
-├── server.js                       # Servidor HTTP local, API de puertos, lanzador .bat y pruebas
+├── server.js                       # Punto de entrada ligero del servidor HTTP
 ├── package.json                    # Configuración y scripts CLI (npm start, npm test, npm run audit)
 ├── README.md                       # Documentación del sistema
+├── src/                            # Arquitectura modular del Backend (por capas y dominios)
+│   ├── config/
+│   │   ├── constantes.js           # Puertos, límites, MIME types, cabeceras HTTP y CSP
+│   │   └── rutas-sistema.js        # Rutas base del proyecto, datos, respaldos y directorios ignorados
+│   ├── utils/
+│   │   ├── archivos.js             # Prevención de Path Traversal, lectura JSON y escáner recursivo
+│   │   ├── cli.js                  # Parseo de argumentos de consola y helpers asíncronos
+│   │   └── urls.js                 # Validación SSRF (localhost), construcción de URLs y puertos
+│   ├── services/
+│   │   ├── catalogo/
+│   │   │   ├── repositorio.js      # Lectura, escritura atómica, búsqueda y filtrado de proyectos
+│   │   │   ├── respaldos.js        # Creación, rotación y restauración de respaldos automáticos
+│   │   │   └── validacion.js       # Validación estricta del catálogo, comandos y rutas de acceso
+│   │   ├── procesos/
+│   │   │   ├── puertos.js          # Verificación TCP, búsqueda de puerto libre y estados por dueño
+│   │   │   ├── scripts-bat.js      # Detección y sincronización de archivos .bat por proyecto
+│   │   │   └── lanzador.js         # Arranque, reinicio y detención desacoplada de servidores locales
+│   │   ├── deteccion/
+│   │   │   ├── detector-proyecto.js# Autodetección de nombre, comando y puerto desde la carpeta
+│   │   │   └── ficha-tecnica.js    # Analizador de tecnologías, esquemas SQL y métricas LOC
+│   │   ├── auditoria/
+│   │   │   ├── sast.js             # Análisis estático de código fuente (SQLi, XSS, secretos, exec)
+│   │   │   ├── dast.js             # Análisis pasivo en vivo de cabeceras HTTP y rutas protegidas
+│   │   │   ├── evaluadores.js      # Higiene de credenciales, archivos de configuración y puntaje
+│   │   │   └── index.js            # Orquestador de auditoría individual y global (OWASP Top 10)
+│   │   ├── carga/
+│   │   │   └── prueba-carga.js     # Motor de pruebas de concurrencia y punto de colapso
+│   │   └── sesion/
+│   │       └── inicio-sesion.js    # Automatización de inicio de sesión por rol en Chrome/Edge
+│   └── http/
+│       ├── seguridad-http.js       # Protección contra DNS rebinding, CSRF y validación de cabeceras
+│       ├── respuestas.js           # Lectura de body JSON con límite, respuestas JSON y semáforo
+│       ├── estaticos.js            # Servidor seguro de archivos estáticos con CSP
+│       ├── rutas-api.js            # Controladores de los endpoints REST (/api/*)
+│       └── servidor.js             # Instancia HTTP, manejo de puertos ocupados y ciclo de vida
 ├── data/
 │   ├── proyectos.json              # Catálogo persistente de proyectos, roles y fichas técnicas
 │   └── respaldos/                  # Copias automáticas antes de cada cambio (últimas 25)
 ├── tools/                          # Configuración para compilar el CSS (npm run build:css)
-├── scripts/
-│   ├── utils-proyectos.js          # Utilidades compartidas (rutas seguras, escáner recursivo, CLI, JSON)
-│   ├── inicio-sesion.js            # Inicio de sesión automático por rol (controla Chrome/Edge)
-│   ├── detector-ficha-tecnica.js   # Analizador automático de tecnologías, esquemas SQL y LOC
-│   ├── prueba-carga.js             # Simulador de usuarios concurrentes y punto de colapso
-│   └── auditoria-seguridad.js      # Motor de auditoría defensiva SAST + DAST (OWASP Top 10)
+├── scripts/                        # Ejecutables CLI y adaptadores de compatibilidad
+│   ├── utils-proyectos.js          # Punto de integración de utilidades del proyecto
+│   ├── inicio-sesion.js            # Adaptador del servicio de inicio de sesión automático
+│   ├── detector-proyecto.js        # Adaptador del detector de datos de proyecto
+│   ├── detector-ficha-tecnica.js   # CLI: Generador de fichas técnicas
+│   ├── prueba-carga.js             # CLI: Simulador de usuarios concurrentes
+│   └── auditoria-seguridad.js      # CLI: Auditoría defensiva SAST + DAST (OWASP Top 10)
 ├── tests/
 │   ├── qa.test.js                  # Suite de pruebas automatizadas de calidad y seguridad
 │   ├── inicio-sesion.test.js       # Pruebas del inicio de sesión automático (con Chrome oculto)
 │   └── fixtures/                   # Sistemas simulados con los mismos estilos de login
-└── public/
+└── public/                         # Aplicación Frontend (Cliente Web)
     ├── index.html                  # Panel de inicio y panel de cada sistema
     ├── css/
     │   ├── tailwind.css            # Tailwind compilado (sin depender del CDN)
@@ -170,8 +206,16 @@ panel de pruebas/
         ├── default-data.js         # Respaldo local sincronizado automáticamente con proyectos.json
         ├── utils.js                # Helpers puros, constantes, toasts, portapapeles y formato
         ├── render.js               # Estampas del inicio, panel de cada sistema y ficha técnica
-        ├── modals.js               # Controladores de modales (CRUD, Auditoría OWASP y Carga)
-        └── app.js                  # Estado principal, persistencia, acciones de red y eventos UI
+        ├── modals/                 # Submódulos especializados por cada ventana modal
+        │   ├── modal-proyecto.js   # Formulario CRUD de sistemas, roles y autodetección
+        │   ├── modal-auditoria.js  # Visualización y exportación de reportes OWASP
+        │   ├── modal-carga.js      # Control y tabla del simulador de usuarios concurrentes
+        │   └── modal-respaldos.js  # Historial y restauración de respaldos del catálogo
+        ├── modals.js               # Punto de integración de modales
+        ├── actions/                # Submódulos de acciones de negocio en el cliente
+        │   ├── proyectos-acciones.js # Encendido, apagado, puertos, escaneo .bat y respaldos JSON
+        │   └── sesion-acciones.js  # Inicio de sesión automático o con pestaña de espera
+        └── app.js                  # Estado principal, enrutador hash (#/sistema/<id>) y eventos UI
 ```
 
 ---

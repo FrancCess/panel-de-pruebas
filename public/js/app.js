@@ -9,16 +9,10 @@
 (() => {
   const {
     STORAGE_KEY,
-    rolEsAutomatizable,
     peticionJSON,
-    escapeHtml,
     actualizarUrlLocalConPuerto,
     mostrarToast,
     copiarAlPortapapeles,
-    descargarArchivoJSON,
-    aArregloFicha,
-    formatearListaFicha,
-    obtenerMetricasNormalizadas,
     modalAbiertoSuperior,
     cerrarModal,
     atraparFoco
@@ -42,17 +36,20 @@
     cerrarModalRespaldos
   } = window.PanelPruebas.modals;
 
+  const { crearAccionesProyectos } = window.PanelPruebas.accionesProyectos;
+  const { crearAccionesSesion } = window.PanelPruebas.accionesSesion;
+
   const PREFS_KEY = 'panel_pruebas_preferencias_v1';
 
   const state = {
     proyectos: [],
     sistemaAbiertoId: null,
-    sistemaSeleccionadoId: null, // lo usan los modales al guardar
+    sistemaSeleccionadoId: null,
     puertosActivos: {},
     estados: {},
     serverDisponible: false,
     autoStartBat: true,
-    autoLogin: true, // Entrar con la sesión ya iniciada en una ventana de Chrome
+    autoLogin: true,
     inicioAutoDisponible: false,
     sesionesEnCurso: new Set(),
     ocupados: new Set(),
@@ -156,10 +153,6 @@
     }
   }
 
-  /**
-   * Guarda el catálogo. El servidor valida los datos: si los rechaza se muestra el motivo
-   * y se devuelve false (el formulario queda abierto para corregir).
-   */
   async function guardarProyectosEnAlmacenamiento() {
     if (!state.serverDisponible) {
       guardarEnLocalStorage();
@@ -271,7 +264,6 @@
     if (proy) {
       inicio.classList.add('hidden');
       vista.classList.remove('hidden');
-      // Conservar lo que se esté escribiendo en el campo de puerto.
       const activo = document.activeElement;
       const editandoPuerto = activo && activo.hasAttribute && activo.hasAttribute('data-quick-port-id');
       const valorPuerto = editandoPuerto ? activo.value : null;
@@ -296,454 +288,30 @@
     });
   }
 
-  // --- PETICIONES UNIFICADAS DE ARRANQUE DE PROYECTO ---
-  async function peticionIniciarProyecto(projectId, opciones = {}) {
-    const proy = state.proyectos.find((p) => p.id === projectId);
-    if (!proy) return { ok: false, error: 'Proyecto no encontrado' };
+  // --- INSTANCIAR ACCIONES MODULARES ---
+  const {
+    peticionIniciarProyecto,
+    activarSistemaConBat,
+    detenerSistemaConBat,
+    escanearBatsEnProyectos,
+    cambiarPuertoDeProyecto,
+    copiarFichaTecnicaMarkdown,
+    abrirCarpetaEnExplorador,
+    exportarCatalogoJSON,
+    importarCatalogoJSON,
+    restaurarCatalogoPorDefecto
+  } = crearAccionesProyectos(state, {
+    guardarEnLocalStorage,
+    guardarProyectosEnAlmacenamiento,
+    asegurarSistemaSeleccionado,
+    renderizarTodo,
+    verificarEstadoPuertos
+  });
 
-    try {
-      const res = await fetch('/api/start-project', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: projectId,
-          esperar: opciones.esperar !== false,
-          autoPuertoLibre: Boolean(opciones.autoPuertoLibre),
-          forzar: Boolean(opciones.reiniciar)
-        })
-      });
-      const data = await res.json();
-      if (data.ok) {
-        if (data.puerto) proy.puerto = data.puerto;
-        if (data.urlBase) proy.urlBase = data.urlBase;
-        if (data.online) {
-          state.puertosActivos[proy.puerto] = true;
-        }
-        guardarEnLocalStorage();
-        renderizarTodo();
-      }
-      return data;
-    } catch (err) {
-      return { ok: false, error: err.message };
-    }
-  }
-
-  async function activarSistemaConBat(projectId, autoPuertoLibre = false, reiniciar = false) {
-    const proy = state.proyectos.find((p) => p.id === projectId);
-    if (!proy) return;
-
-    if (!state.serverDisponible) {
-      mostrarToast('Servidor requerido', 'Abre iniciar-panel.bat para lanzar scripts .bat.', 'error');
-      return;
-    }
-
-    const scriptNombre = proy.archivoBat || proy.comandoInicio || 'servidor';
-    mostrarToast(
-      reiniciar ? `Reiniciando ${proy.nombre}…` : `Iniciando ${proy.nombre}…`,
-      autoPuertoLibre
-        ? `Buscando puerto libre y ejecutando ${scriptNombre}`
-        : `Ejecutando ${scriptNombre} en :${proy.puerto}`,
-      'info'
-    );
-
-    state.ocupados.add(projectId);
-    renderizarTodo();
-    const data = await peticionIniciarProyecto(projectId, { esperar: true, autoPuertoLibre, reiniciar });
-    state.ocupados.delete(projectId);
-    await verificarEstadoPuertos();
-    if (data.ok) {
-      mostrarToast(
-        data.yaEstabaActivo
-          ? `${proy.nombre} ya estaba en línea (:${proy.puerto})`
-          : `${proy.nombre} iniciado en :${proy.puerto}`,
-        data.mensaje || `Ejecutado: ${data.ejecutado}`,
-        'success'
-      );
-    } else {
-      mostrarToast('No se pudo iniciar', data.error || '', 'error');
-    }
-  }
-
-  async function detenerSistemaConBat(projectId) {
-    const proy = state.proyectos.find((p) => p.id === projectId);
-    if (!proy) return;
-
-    state.ocupados.add(projectId);
-    renderizarTodo();
-    try {
-      const res = await fetch('/api/stop-project', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: projectId })
-      });
-      const data = await res.json();
-      if (data.ok) {
-        state.puertosActivos[proy.puerto] = Boolean(data.online);
-        mostrarToast(`${proy.nombre} detenido`, `Se ejecutó ${data.ejecutado}`, 'info');
-      } else {
-        mostrarToast('No se pudo detener', data.error || '', 'error');
-      }
-    } catch (err) {
-      mostrarToast('Error', err.message, 'error');
-    } finally {
-      state.ocupados.delete(projectId);
-      await verificarEstadoPuertos();
-      renderizarTodo();
-    }
-  }
-
-  async function escanearBatsEnProyectos() {
-    if (!state.serverDisponible) {
-      mostrarToast('Modo sin servidor', 'Ejecuta iniciar-panel.bat para buscar archivos .bat.', 'error');
-      return;
-    }
-
-    try {
-      const res = await fetch('/api/scan-bats', { cache: 'no-store' });
-      const data = await res.json();
-      if (data.ok && Array.isArray(data.proyectos)) {
-        state.proyectos = data.proyectos;
-        guardarEnLocalStorage();
-        renderizarTodo();
-        mostrarToast(
-          'Archivos .bat actualizados',
-          `Se vincularon ${data.detectados} scripts de inicio en tus proyectos.`,
-          'success'
-        );
-      }
-    } catch (err) {
-      mostrarToast('Error al buscar .bat', err.message, 'error');
-    }
-  }
-
-  async function cambiarPuertoDeProyecto(projectId, nuevoPuerto, autoLibre = false) {
-    const proy = state.proyectos.find((p) => p.id === projectId);
-    if (!proy) return;
-
-    if (!autoLibre) {
-      if (!Number.isInteger(nuevoPuerto) || nuevoPuerto < 1 || nuevoPuerto > 65535) {
-        mostrarToast('Puerto inválido', 'Ingresa un número de puerto entre 1 y 65535.', 'error');
-        return;
-      }
-    }
-
-    if (state.serverDisponible) {
-      try {
-        const res = await fetch('/api/change-port', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            id: projectId,
-            nuevoPuerto: autoLibre ? undefined : nuevoPuerto,
-            auto: autoLibre
-          })
-        });
-        const data = await res.json();
-        if (data.ok) {
-          proy.puerto = data.nuevoPuerto;
-          proy.urlBase = data.urlBase;
-          state.puertosActivos[data.nuevoPuerto] = Boolean(data.ocupadoActualmente);
-          guardarEnLocalStorage();
-          renderizarTodo();
-          mostrarToast(
-            `Puerto ajustado a :${data.nuevoPuerto}`,
-            `${proy.nombre} ahora apunta a ${data.urlBase}`,
-            'success'
-          );
-          return;
-        } else {
-          mostrarToast('No se pudo cambiar el puerto', data.error || '', 'error');
-          return;
-        }
-      } catch {
-        // Respaldo local si falla red
-      }
-    }
-
-    let puertoFinal = nuevoPuerto;
-    if (autoLibre) {
-      const usados = new Set(
-        state.proyectos
-          .filter((item) => item.id !== projectId)
-          .map((item) => Number(item.puerto))
-      );
-      let candidato = (Number(proy.puerto) || 3000) + 1;
-      while (usados.has(candidato) || candidato === 4500) {
-        candidato++;
-      }
-      puertoFinal = candidato;
-    }
-
-    proy.puerto = puertoFinal;
-    proy.urlBase = actualizarUrlLocalConPuerto(proy.urlBase, puertoFinal);
-    await guardarProyectosEnAlmacenamiento();
-    renderizarTodo();
-    mostrarToast(
-      `Puerto ajustado a :${puertoFinal}`,
-      `${proy.nombre} ahora apunta a ${proy.urlBase}`,
-      'success'
-    );
-  }
-
-  function copiarFichaTecnicaMarkdown(projectId) {
-    const p = state.proyectos.find((item) => item.id === projectId);
-    if (!p || !p.fichaTecnica) return;
-    const ft = p.fichaTecnica;
-    const { totalArchivos, totalLineas } = obtenerMetricasNormalizadas(ft.metricas);
-    const tablas = aArregloFicha(ft.tablasBaseDatos);
-
-    const lineas = [
-      `# Ficha Técnica: ${p.nombre}`,
-      `- **Categoría:** ${p.categoria || 'General'}`,
-      `- **Arquitectura:** ${ft.tipoArquitectura || 'Aplicación Web'}`,
-      `- **Versión:** ${ft.version || '1.0.0'}`,
-      `- **URL Local:** ${p.urlBase} (Puerto ${p.puerto})`,
-      `- **Motor / Runtime:** ${formatearListaFicha(ft.motorRuntime, ', ', 'N/A')}`,
-      `- **Lenguajes:** ${formatearListaFicha(ft.lenguajes, ', ', 'N/A')}`,
-      `- **Backend:** ${formatearListaFicha(ft.backend, ', ', 'N/A')}`,
-      `- **Frontend:** ${formatearListaFicha(ft.frontend, ', ', 'N/A')}`,
-      `- **Base de Datos:** ${formatearListaFicha(ft.baseDatos, ', ', 'N/A')}`,
-      `- **Librerías Clave:** ${formatearListaFicha(ft.libreriasClave, ', ', 'N/A')}`,
-      `- **Seguridad:** ${formatearListaFicha(ft.seguridad, ', ', 'N/A')}`,
-      `- **Métricas de Código:** ${totalArchivos} archivos (~${totalLineas.toLocaleString()} líneas de código)`,
-      tablas.length > 0
-        ? `- **Tablas Detectadas (${tablas.length}):** ${tablas.join(', ')}`
-        : ''
-    ].filter(Boolean);
-
-    copiarAlPortapapeles(lineas.join('\n'), `Ficha Técnica de ${p.nombre}`);
-  }
-
-  /**
-   * Abre una ventana de Chrome con la sesión del rol ya iniciada (el servidor enciende
-   * el sistema si hace falta, escribe usuario y contraseña y envía el formulario).
-   */
-  async function iniciarSesionAutomatica(proy, rolObj, url) {
-    const clave = `${proy.id}::${rolObj.id}`;
-    if (state.sesionesEnCurso.has(clave)) return;
-    state.sesionesEnCurso.add(clave);
-
-    const apagado = !state.puertosActivos[proy.puerto];
-    mostrarToast(
-      `Entrando como ${rolObj.rol}…`,
-      apagado
-        ? `Encendiendo ${proy.nombre} y abriendo una ventana con la sesión iniciada.`
-        : 'Abriendo una ventana de Chrome con la sesión iniciada.',
-      'info'
-    );
-
-    try {
-      const data = await peticionJSON('/api/login-as', {
-        method: 'POST',
-        body: { id: proy.id, rolId: rolObj.id, autoIniciar: state.autoStartBat }
-      });
-      verificarEstadoPuertos();
-
-      if (data.ok && data.estado === 'sesion-iniciada') {
-        mostrarToast(`Sesión iniciada: ${rolObj.rol}`, `${proy.nombre} — revisa la ventana de Chrome.`, 'success');
-      } else if (data.ok && data.estado === 'ya-abierta') {
-        mostrarToast(`${rolObj.rol} ya tenía su ventana abierta`, 'Se trajo al frente.', 'info');
-      } else if (data.ok && data.estado === 'sin-login') {
-        mostrarToast(`${proy.nombre} abierto`, data.mensaje || '', 'info');
-      } else if (['SIN_PLAYWRIGHT', 'SIN_NAVEGADOR'].includes(data.codigo)) {
-        // Sin Chrome controlable: volver al método anterior (abrir y copiar la contraseña).
-        state.inicioAutoDisponible = data.codigo !== 'SIN_PLAYWRIGHT' && state.inicioAutoDisponible;
-        mostrarToast('No se pudo iniciar sesión automáticamente', data.error || '', 'error');
-        abrirEnNavegadorNormal(proy, url, rolObj.usuario, rolObj.password, rolObj.rol);
-      } else {
-        mostrarToast(`No se pudo entrar como ${rolObj.rol}`, data.mensaje || data.error || '', 'error');
-      }
-    } finally {
-      state.sesionesEnCurso.delete(clave);
-    }
-  }
-
-  function abrirEnNavegadorNormal(proy, url, user, pass, rol) {
-    const textoACopiar = pass && pass !== 'Sin contraseña' ? pass : user;
-    if (textoACopiar) navigator.clipboard?.writeText(textoACopiar).catch(() => {});
-    mostrarToast(
-      user ? `Entrando como ${rol}` : `Abriendo ${proy ? proy.nombre : rol}`,
-      user ? `Usuario: ${user} — Contraseña copiada (Ctrl+V)` : `Abriendo ${url}`,
-      'info'
-    );
-    window.open(url, '_blank', 'noopener');
-  }
-
-  async function lanzarRolConAutoActivacion(projectId, url, user, pass, rol, rolId = '') {
-    const proyAuto = state.proyectos.find((p) => p.id === projectId);
-    const rolObj = proyAuto && rolId ? (proyAuto.roles || []).find((r) => r.id === rolId) : null;
-    if (rolObj && state.autoLogin && state.serverDisponible && state.inicioAutoDisponible && rolEsAutomatizable(rolObj)) {
-      await iniciarSesionAutomatica(proyAuto, rolObj, url);
-      return;
-    }
-
-    const textoACopiar = pass && pass !== 'Sin contraseña' ? pass : user;
-    if (textoACopiar) {
-      navigator.clipboard?.writeText(textoACopiar).catch(() => {});
-    }
-
-    const proy = state.proyectos.find((p) => p.id === projectId);
-    const estaOnline = proy ? Boolean(state.puertosActivos[proy.puerto]) : true;
-
-    if (estaOnline || !state.autoStartBat || !state.serverDisponible || !proy) {
-      mostrarToast(
-        user ? `Entrando como ${rol}` : `Abriendo ${proy ? proy.nombre : rol}`,
-        user ? `Usuario: ${user} — Contraseña copiada (Ctrl+V)` : `Abriendo ${url}`,
-        'info'
-      );
-      window.open(url, '_blank', 'noopener');
-      return;
-    }
-
-    const nuevaVentana = window.open('about:blank', '_blank');
-    const scriptBat = proy.archivoBat || proy.comandoInicio || 'servidor';
-
-    if (nuevaVentana && nuevaVentana.document) {
-      nuevaVentana.document.write(`
-        <!DOCTYPE html>
-        <html lang="es">
-        <head>
-          <meta charset="UTF-8" />
-          <title>Iniciando ${escapeHtml(proy.nombre)}...</title>
-          <style>
-            body {
-              margin: 0;
-              min-height: 100vh;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              background: #f8fafc;
-              color: #0f172a;
-              font-family: system-ui, -apple-system, sans-serif;
-            }
-            .box {
-              max-width: 440px;
-              padding: 32px;
-              border-radius: 20px;
-              background: #ffffff;
-              border: 1px solid #e2e8f0;
-              text-align: center;
-              box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
-            }
-            .spinner {
-              width: 40px;
-              height: 40px;
-              border: 3px solid #e2e8f0;
-              border-top-color: #4f46e5;
-              border-radius: 50%;
-              margin: 0 auto 18px;
-              animation: spin 0.8s linear infinite;
-            }
-            @keyframes spin { to { transform: rotate(360deg); } }
-            h2 { margin: 0 0 8px; font-size: 17px; color: #0f172a; }
-            p { margin: 6px 0; font-size: 13px; color: #64748b; }
-            .badge {
-              display: inline-block;
-              margin-top: 14px;
-              padding: 6px 12px;
-              border-radius: 10px;
-              background: #eef2ff;
-              color: #4338ca;
-              font-family: monospace;
-              font-size: 12px;
-              font-weight: 600;
-            }
-          </style>
-        </head>
-        <body>
-          <div class="box">
-            <div class="spinner"></div>
-            <h2>Iniciando ${escapeHtml(proy.nombre)}...</h2>
-            <p>Ejecutando <strong>${escapeHtml(scriptBat)}</strong> y esperando al puerto <strong>:${escapeHtml(proy.puerto)}</strong></p>
-            ${
-              user
-                ? `<div class="badge">Rol: ${escapeHtml(rol)} — Contraseña ya copiada (Ctrl+V)</div>`
-                : `<div class="badge">Arranque directo en progreso...</div>`
-            }
-          </div>
-        </body>
-        </html>
-      `);
-    }
-
-    mostrarToast(
-      `Activando ${proy.nombre}`,
-      `Se abrirá en cuanto el puerto :${proy.puerto} esté listo`,
-      'info'
-    );
-
-    const arranque = await peticionIniciarProyecto(projectId, { esperar: true });
-    if (!arranque.ok) {
-      mostrarToast('No se pudo iniciar', arranque.error || '', 'error');
-      if (nuevaVentana && !nuevaVentana.closed) {
-        try {
-          nuevaVentana.document.body.innerHTML = `<div style="font-family:system-ui,sans-serif;max-width:440px;margin:15vh auto;padding:28px;border:1px solid #fecdd3;border-radius:18px;text-align:center"><h2 style="font-size:17px">No se pudo iniciar ${escapeHtml(proy.nombre)}</h2><p style="color:#64748b;font-size:13px">${escapeHtml(arranque.error || 'Error desconocido.')}</p><p style="color:#64748b;font-size:13px">Puedes cerrar esta pestaña.</p></div>`;
-        } catch {
-          // La pestaña ya no es accesible
-        }
-      }
-      return;
-    }
-
-    if (nuevaVentana) {
-      nuevaVentana.location.href = url;
-    } else {
-      window.open(url, '_blank', 'noopener');
-    }
-  }
-
-  async function abrirCarpetaEnExplorador(carpetaLocal) {
-    try {
-      const res = await fetch('/api/open-folder', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ carpetaLocal })
-      });
-      const data = await res.json();
-      if (data.ok) {
-        mostrarToast('Carpeta abierta', data.ruta, 'success');
-      } else {
-        mostrarToast('No se pudo abrir la carpeta', data.error || '', 'error');
-      }
-    } catch {
-      mostrarToast('Servidor requerido', 'Inicia el servidor local para abrir carpetas.', 'error');
-    }
-  }
-
-  // --- EXPORTAR / IMPORTAR / RESTAURAR ---
-  function exportarCatalogoJSON() {
-    descargarArchivoJSON(state.proyectos, 'proyectos-pruebas');
-  }
-
-  function importarCatalogoJSON(file) {
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      try {
-        const parsed = JSON.parse(e.target.result);
-        if (!Array.isArray(parsed)) throw new Error('Formato inválido');
-        state.proyectos = parsed;
-        asegurarSistemaSeleccionado();
-        await guardarProyectosEnAlmacenamiento();
-        renderizarTodo();
-        verificarEstadoPuertos();
-        mostrarToast('Catálogo importado', `${parsed.length} sistemas cargados`, 'success');
-      } catch {
-        mostrarToast('Error', 'Archivo JSON inválido.', 'error');
-      }
-    };
-    reader.readAsText(file);
-  }
-
-  async function restaurarCatalogoPorDefecto() {
-    if (!confirm('¿Restaurar el catálogo original de sistemas y roles?')) return;
-    state.proyectos = structuredClone(window.PROYECTOS_DEFAULT || window.DEFAULT_HUB_DATA || []);
-    asegurarSistemaSeleccionado();
-    await guardarProyectosEnAlmacenamiento();
-    renderizarTodo();
-    verificarEstadoPuertos();
-    mostrarToast('Catálogo restaurado', 'Se cargaron los sistemas originales', 'success');
-  }
+  const { lanzarRolConAutoActivacion } = crearAccionesSesion(state, {
+    verificarEstadoPuertos,
+    peticionIniciarProyecto
+  });
 
   // --- ACCIONES DEL PANEL DE UN SISTEMA ---
   function manejarClickAcciones(e) {
