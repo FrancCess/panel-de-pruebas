@@ -22,7 +22,8 @@ const {
 } = require('./scripts/utils-proyectos');
 const { auditarProyecto, auditarTodosLosProyectos } = require('./scripts/auditoria-seguridad');
 const { ejecutarPruebaCargaProyecto } = require('./scripts/prueba-carga');
-const { enriquecerProyectosConFichaTecnica } = require('./scripts/detector-ficha-tecnica');
+const { enriquecerProyectosConFichaTecnica, analizarCarpetaProyecto } = require('./scripts/detector-ficha-tecnica');
+const { detectarDatosDesdeCarpeta } = require('./scripts/detector-proyecto');
 const {
   inicioAutomaticoDisponible,
   rolEsAutomatizable,
@@ -776,6 +777,31 @@ const rutas = {
       if (!proyecto) return responderJSON(res, 404, { ok: false, error: 'Proyecto no encontrado.' });
       const resultado = await ejecutarPruebaCargaProyecto(proyecto, { maxUsuarios, modo });
       return responderJSON(res, 200, resultado);
+    });
+  },
+
+  'POST /api/detect-project': async (req, res) => {
+    const body = await leerBodyJSON(req);
+    const validacion = resolverRutaProyectoSegura(body.carpetaLocal);
+    if (!validacion.ok) return responderJSON(res, validacion.codigo, { ok: false, error: validacion.error });
+    if (!fs.statSync(validacion.rutaAbsoluta).isDirectory()) {
+      return responderJSON(res, 400, { ok: false, error: 'La ruta no es una carpeta.' });
+    }
+    const carpetaLocal = String(body.carpetaLocal).trim();
+    const { batInicio } = detectarBatsEnCarpetaProyecto(carpetaLocal);
+    const datos = detectarDatosDesdeCarpeta(validacion.rutaAbsoluta, { batInicio });
+    const ficha = analizarCarpetaProyecto(carpetaLocal);
+    const stack = ficha && ficha.stackResumen && ficha.stackResumen[0] !== 'Web App' ? ficha.stackResumen : [];
+
+    const idActual = String(body.id || '').trim();
+    const ocupante = datos.puerto
+      ? leerProyectos().find((p) => p.id !== idActual && Number(p.puerto) === datos.puerto)
+      : null;
+
+    return responderJSON(res, 200, {
+      ok: true,
+      proyecto: { ...datos, stack },
+      puertoOcupadoPor: ocupante ? ocupante.nombre : null
     });
   },
 

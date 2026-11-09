@@ -185,6 +185,53 @@
     abrirModal('projectModal', '#formNombre');
   }
 
+  async function detectarDesdeCarpeta() {
+    const inputCarpeta = document.getElementById('formCarpetaLocal');
+    const carpetaLocal = inputCarpeta.value.trim();
+    if (!carpetaLocal) {
+      marcarError(inputCarpeta, 'Escribe la carpeta del proyecto.');
+      return;
+    }
+
+    const boton = document.getElementById('btnDetectarCarpeta');
+    boton.disabled = true;
+    const data = await peticionJSON('/api/detect-project', {
+      method: 'POST',
+      body: { carpetaLocal, id: document.getElementById('formProjectId').value }
+    });
+    boton.disabled = false;
+
+    if (!data.ok) {
+      mostrarToast('No se pudo leer la carpeta', data.error || '', 'error');
+      return;
+    }
+
+    const p = data.proyecto || {};
+    const llenados = [];
+    const poner = (id, valor, etiqueta, soloSiVacio = false) => {
+      const input = document.getElementById(id);
+      if (valor === '' || valor === null || valor === undefined) return;
+      if (soloSiVacio && input.value.trim()) return;
+      input.value = valor;
+      llenados.push(etiqueta);
+    };
+
+    poner('formNombre', p.nombre, 'nombre', true);
+    poner('formSubtitulo', p.subtitulo, 'descripción', true);
+    poner('formStack', (p.stack || []).join(', '), 'tecnologías');
+    poner('formComandoInicio', p.comandoInicio, 'comando');
+    poner('formPuerto', p.puerto, 'puerto');
+    poner('formUrlBase', p.urlBase, 'URL');
+
+    if (data.puertoOcupadoPor) {
+      mostrarToast(`Puerto :${p.puerto} en uso`, `Lo usa ${data.puertoOcupadoPor}.`, 'error');
+    } else if (llenados.length) {
+      mostrarToast('Datos detectados', llenados.join(', '), 'success');
+    } else {
+      mostrarToast('Sin datos detectados', '', 'info');
+    }
+  }
+
   function cerrarModalProyecto() {
     cerrarModal('projectModal');
   }
@@ -745,6 +792,7 @@
     crearFilaFormularioRol,
     abrirModalProyecto,
     cerrarModalProyecto,
+    detectarDesdeCarpeta,
     guardarFormularioProyecto,
     eliminarProyectoActual,
     ejecutarAuditoriaSeguridad,

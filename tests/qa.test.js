@@ -46,6 +46,7 @@ const {
 } = require('../scripts/utils-proyectos');
 
 const { analizarCarpetaProyecto } = require('../scripts/detector-ficha-tecnica');
+const { detectarDatosDesdeCarpeta, humanizarNombre } = require('../scripts/detector-proyecto');
 const { auditarProyecto } = require('../scripts/auditoria-seguridad');
 const { ejecutarPruebaCargaProyecto } = require('../scripts/prueba-carga');
 const { server, registrarPuertoPanel, calcularEstadosProyectos, duenosPuerto } = require('../server');
@@ -458,9 +459,133 @@ describe('6. Endpoints HTTP y protecciones de server.js', () => {
     await postJSON('/api/proyectos', { proyectos });
   });
 
+  it('POST /api/detect-project llena los datos de una carpeta del área de proyectos', async () => {
+    const res = await postJSON('/api/detect-project', { carpetaLocal: '.' });
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.equal(data.ok, true);
+    assert.equal(data.proyecto.nombre, 'Panel De Pruebas');
+    assert.equal(data.proyecto.comandoInicio, 'iniciar-panel.bat');
+    assert.equal(data.proyecto.puerto, 4500);
+    assert.equal(data.proyecto.urlBase, 'http://localhost:4500');
+  });
+
+  it('POST /api/detect-project rechaza carpetas fuera del área de proyectos', async () => {
+    const res = await postJSON('/api/detect-project', { carpetaLocal: path.parse(WORKSPACE_ROOT).root });
+    assert.equal(res.status, 403);
+    const vacia = await postJSON('/api/detect-project', { carpetaLocal: '' });
+    assert.equal(vacia.status, 400);
+  });
+
   it('responde 404 en rutas de API inexistentes', async () => {
     const res = await fetch(`${baseUrl}/api/no-existe`);
     assert.equal(res.status, 404);
+  });
+});
+
+describe('6b. Detección de datos desde la carpeta del proyecto', () => {
+  const crear = (archivos) => {
+    const dir = fs.mkdtempSync(path.join(DIR_TEMPORAL, 'detectar-'));
+    for (const [nombre, contenido] of Object.entries(archivos)) {
+      fs.mkdirSync(path.dirname(path.join(dir, nombre)), { recursive: true });
+      fs.writeFileSync(path.join(dir, nombre), typeof contenido === 'string' ? contenido : JSON.stringify(contenido));
+    }
+    return dir;
+  };
+
+  it('humaniza nombres de paquete', () => {
+    assert.equal(humanizarNombre('@acme/sis-ventas_pos'), 'Sis Ventas Pos');
+    assert.equal(humanizarNombre('acme/control-escolar'), 'Control Escolar');
+  });
+
+  it('Vite: usa "npm run dev" y el puerto de vite.config', () => {
+    const dir = crear({
+      'package.json': { name: 'tienda-demo', description: 'Tienda de prueba', scripts: { dev: 'vite', start: 'node x.js' }, devDependencies: { vite: '^5.0.0' } },
+      'vite.config.js': 'export default { server: { port: 5180 } }'
+    });
+    const d = detectarDatosDesdeCarpeta(dir);
+    assert.equal(d.nombre, 'Tienda Demo');
+    assert.equal(d.subtitulo, 'Tienda de prueba');
+    assert.equal(d.comandoInicio, 'npm run dev');
+    assert.equal(d.puerto, 5180);
+    assert.equal(d.urlBase, 'http://localhost:5180');
+  });
+
+  it('el puerto del script tiene prioridad y solo se lee el puerto del .env', () => {
+    const dir = crear({
+      'package.json': { name: 'api', scripts: { start: 'node server.js --port 3999' } },
+      '.env': 'DB_PASSWORD=ClaveDemo-1\nPORT=3100\n'
+    });
+    const d = detectarDatosDesdeCarpeta(dir);
+    assert.equal(d.comandoInicio, 'npm start');
+    assert.equal(d.puerto, 3999);
+    assert.ok(!JSON.stringify(d).includes('ClaveDemo-1'));
+
+    const sinScript = crear({ 'package.json': { name: 'api', scripts: { start: 'node server.js' } }, '.env': 'PORT=3100\n' });
+    assert.equal(detectarDatosDesdeCarpeta(sinScript).puerto, 3100);
+  });
+
+  it('Express: lee el puerto de server.js y respeta pnpm', () => {
+    const dir = crear({
+      'package.json': { name: 'backend', main: 'server.js', scripts: { start: 'node server.js' } },
+      'pnpm-lock.yaml': '',
+      'server.js': 'const PORT = process.env.PORT || 3050;\napp.listen(PORT);'
+    });
+    const d = detectarDatosDesdeCarpeta(dir);
+    assert.equal(d.comandoInicio, 'pnpm start');
+    assert.equal(d.puerto, 3050);
+  });
+
+  it('Laravel: "php artisan serve" en el puerto de APP_URL o 8000', () => {
+    const dir = crear({ artisan: '', 'composer.json': { name: 'acme/titulacion' } });
+    let d = detectarDatosDesdeCarpeta(dir);
+    assert.equal(d.nombre, 'Titulacion');
+    assert.equal(d.comandoInicio, 'php artisan serve');
+    assert.equal(d.puerto, 8000);
+    fs.writeFileSync(path.join(dir, '.env'), 'APP_URL=http://localhost:8010\n');
+    assert.equal(detectarDatosDesdeCarpeta(dir).puerto, 8010);
+  });
+
+  it('Flask y .bat de inicio', () => {
+    const flask = crear({ 'run.py': 'app.run(debug=True)', 'requirements.txt': 'Flask==3.0\n' });
+    const d = detectarDatosDesdeCarpeta(flask);
+    assert.equal(d.comandoInicio, 'python run.py');
+    assert.equal(d.puerto, 5000);
+
+    const conBat = crear({ 'iniciar.bat': '@echo off\nphp artisan serve --port=8020\n', artisan: '' });
+    const b = detectarDatosDesdeCarpeta(conBat, { batInicio: 'iniciar.bat' });
+    assert.equal(b.comandoInicio, 'iniciar.bat');
+    assert.equal(b.puerto, 8020);
+  });
+
+  it('Electron: usa el script del servidor y no "electron ."', () => {
+    const dir = crear({
+      'package.json': { name: 'horarios', scripts: { start: 'electron .', backend: 'cd backend && python main.py 8040' } }
+    });
+    const d = detectarDatosDesdeCarpeta(dir);
+    assert.equal(d.comandoInicio, 'npm run backend');
+    assert.equal(d.puerto, 8040);
+  });
+
+  it('si el paquete se llama como la carpeta, conserva las mayúsculas de la carpeta', () => {
+    const base = fs.mkdtempSync(path.join(DIR_TEMPORAL, 'nombre-'));
+    const dir = path.join(base, 'AulaDemo');
+    fs.mkdirSync(dir);
+    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'aulademo' }));
+    assert.equal(detectarDatosDesdeCarpeta(dir).nombre, 'AulaDemo');
+
+    const plantilla = path.join(base, 'control-escolar');
+    fs.mkdirSync(plantilla);
+    fs.writeFileSync(path.join(plantilla, 'composer.json'), JSON.stringify({ name: 'laravel/laravel' }));
+    assert.equal(detectarDatosDesdeCarpeta(plantilla).nombre, 'Control Escolar');
+  });
+
+  it('carpeta sin pistas: nombre de la carpeta y sin puerto', () => {
+    const d = detectarDatosDesdeCarpeta(crear({}));
+    assert.ok(d.nombre.startsWith('Detectar'));
+    assert.equal(d.comandoInicio, '');
+    assert.equal(d.puerto, null);
+    assert.equal(d.urlBase, '');
   });
 });
 

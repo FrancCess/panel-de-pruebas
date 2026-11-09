@@ -959,6 +959,7 @@
       await eliminarProyectoActual(state, callbacksModales);
       aplicarRuta();
     });
+    document.getElementById('btnDetectarCarpeta').addEventListener('click', () => window.PanelPruebas.modals.detectarDesdeCarpeta());
     document.getElementById('btnAddRoleRow').addEventListener('click', () => {
       const container = document.getElementById('rolesFormContainer');
       const fila = crearFilaFormularioRol({ rutaAcceso: '/login', badgeColor: 'blue' });
