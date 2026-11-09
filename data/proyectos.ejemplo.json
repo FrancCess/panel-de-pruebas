@@ -1,0 +1,85 @@
+[
+  {
+    "id": "sistema-escolar",
+    "nombre": "Sistema Escolar (ejemplo)",
+    "subtitulo": "Proyecto Laravel de muestra",
+    "categoria": "Académico",
+    "stack": ["Laravel", "PHP", "MySQL"],
+    "urlBase": "http://localhost:8000",
+    "puerto": 8000,
+    "carpetaLocal": "..\\sistema-escolar",
+    "comandoInicio": "iniciar.bat",
+    "archivoBat": "iniciar.bat",
+    "color": "indigo",
+    "icono": "graduation-cap",
+    "favorito": true,
+    "notasSistema": "Catálogo de ejemplo: cambia carpetas, puertos y credenciales por las de tus proyectos.",
+    "roles": [
+      {
+        "id": "escolar-admin",
+        "rol": "Administrador",
+        "badgeColor": "purple",
+        "usuario": "admin@ejemplo.test",
+        "password": "CambiaEsta-123",
+        "pin": "",
+        "rutaAcceso": "/login",
+        "permisos": "Acceso completo"
+      },
+      {
+        "id": "escolar-docente",
+        "rol": "Docente",
+        "badgeColor": "blue",
+        "usuario": "docente@ejemplo.test",
+        "password": "CambiaEsta-456",
+        "pin": "",
+        "rutaAcceso": "/login",
+        "permisos": "Captura de calificaciones"
+      }
+    ]
+  },
+  {
+    "id": "punto-de-venta",
+    "nombre": "Punto de Venta (ejemplo)",
+    "subtitulo": "Proyecto Node.js de muestra",
+    "categoria": "Comercial",
+    "stack": ["Node.js", "Express", "SQLite"],
+    "urlBase": "http://localhost:3000",
+    "puerto": 3000,
+    "carpetaLocal": "..\\punto-de-venta",
+    "comandoInicio": "npm run dev",
+    "archivoBat": "",
+    "color": "orange",
+    "icono": "utensils",
+    "favorito": false,
+    "notasSistema": "",
+    "roles": [
+      {
+        "id": "pv-cajero",
+        "rol": "Cajero",
+        "badgeColor": "emerald",
+        "usuario": "cajero",
+        "password": "CambiaEsta-789",
+        "pin": "",
+        "rutaAcceso": "/login.html",
+        "permisos": "Cobro de cuentas"
+      }
+    ]
+  },
+  {
+    "id": "app-escritorio",
+    "nombre": "App sin login (ejemplo)",
+    "subtitulo": "Se abre directo, sin usuarios",
+    "categoria": "Administrativo",
+    "stack": ["React", "Vite"],
+    "urlBase": "http://localhost:5173",
+    "puerto": 5173,
+    "carpetaLocal": "..\\app-escritorio",
+    "comandoInicio": "npm run dev",
+    "archivoBat": "",
+    "color": "violet",
+    "icono": "users",
+    "favorito": false,
+    "notasSistema": "",
+    "roles": []
+  }
+]

@@ -1,0 +1,10 @@
+# Contienen contraseñas de prueba de todos los sistemas: no subir a GitHub.
+# (se publica solo el catálogo de ejemplo: data/proyectos.ejemplo.json)
+data/*
+!data/proyectos.ejemplo.json
+public/js/default-data.js
+
+# Respaldos manuales y temporales
+_respaldo*/
+*.tmp
+node_modules/
